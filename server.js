@@ -105,6 +105,28 @@ function selectQuestion(difficulty) {
   return db.prepare('SELECT * FROM quiz_questions WHERE difficulty = ? ORDER BY RANDOM() LIMIT 1').get(difficulty)
     || db.prepare('SELECT * FROM quiz_questions ORDER BY RANDOM() LIMIT 1').get();
 }
+function pathIsClear(chess, from, to) {
+  const files = 'abcdefgh';
+  const fromFile = files.indexOf(from[0]); const fromRank = Number(from[1]);
+  const toFile = files.indexOf(to[0]); const toRank = Number(to[1]);
+  const fileStep = Math.sign(toFile - fromFile); const rankStep = Math.sign(toRank - fromRank);
+  for (let file = fromFile + fileStep, rank = fromRank + rankStep; file !== toFile || rank !== toRank; file += fileStep, rank += rankStep) {
+    if (chess.get(`${files[file]}${rank}`)) return false;
+  }
+  return true;
+}
+function canCaptureKing(chess, from, to, color) {
+  const files = 'abcdefgh'; const source = chess.get(from); const target = chess.get(to);
+  if (!source || !target || source.color !== color || target.color === color || target.type !== 'k') return false;
+  const fileDistance = Math.abs(files.indexOf(to[0]) - files.indexOf(from[0]));
+  const rankDistance = Math.abs(Number(to[1]) - Number(from[1]));
+  if (source.type === 'p') return fileDistance === 1 && Number(to[1]) - Number(from[1]) === (color === 'w' ? 1 : -1);
+  if (source.type === 'n') return fileDistance * rankDistance === 2;
+  if (source.type === 'b') return fileDistance === rankDistance && pathIsClear(chess, from, to);
+  if (source.type === 'r') return (fileDistance === 0 || rankDistance === 0) && pathIsClear(chess, from, to);
+  if (source.type === 'q') return (fileDistance === 0 || rankDistance === 0 || fileDistance === rankDistance) && pathIsClear(chess, from, to);
+  return source.type === 'k' && Math.max(fileDistance, rankDistance) === 1;
+}
 function serializeGame(gameId, viewerId) {
   const game = db.prepare(`SELECT g.*, u.username AS owner_name FROM games g JOIN users u ON u.id = g.owner_id WHERE g.id = ?`).get(gameId);
   if (!game) return null;
@@ -246,11 +268,18 @@ io.on('connection', (socket) => {
     const expectedColor = chess.turn() === 'w' ? 'white' : 'black';
     if (player.color !== expectedColor) return socket.emit('app:error', 'Wait for your turn.');
     try {
-      const move = chess.move({ from, to, promotion });
+      let move;
+      const target = chess.get(to);
+      if (target?.type === 'k' && canCaptureKing(chess, from, to, player.color === 'white' ? 'w' : 'b')) {
+        const source = chess.get(from);
+        chess.remove(from); chess.remove(to); chess.put(source, to);
+        move = { san: `${source.type.toUpperCase()}${from}x${to}#`, from, to, captured: 'k' };
+      } else {
+        move = chess.move({ from, to, promotion });
+      }
       const moves = JSON.parse(game.moves_json);
       moves.push({ san: move.san, from, to, by: socket.user.username, at: Date.now(), captured: move.captured || null });
-      let status = 'active';
-      if (chess.isCheckmate() || chess.isDraw()) status = 'finished';
+      let status = move.captured === 'k' || chess.isCheckmate() || chess.isDraw() ? 'finished' : 'active';
       db.transaction(() => {
         db.prepare('UPDATE games SET fen = ?, moves_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(chess.fen(), JSON.stringify(moves), status, gameId);
         if (move.captured && status === 'active') {
