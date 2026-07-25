@@ -280,10 +280,10 @@ app.post('/api/scan', auth, (req, res) => {
   res.json({ gameId: challenge.game_id, success: true });
 });
 app.get('/api/qr-tiers', async (req, res) => {
-  const host = `${req.protocol}://${req.get('host')}`;
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
   const tiers = ['warmup', 'tactic', 'advanced'];
   const results = await Promise.all(tiers.map(async (tier) => {
-    const url = `${host}/#scan=${tier}`;
+    const url = `${baseUrl}/#scan=${tier}`;
     const image = await QRCode.toDataURL(url, { width: 400, margin: 2, color: { dark: '#14251c', light: '#f6f1e8' } });
     return { tier, label: TIER_LABELS[tier], pieces: TIER_PIECES[tier], url, image };
   }));
