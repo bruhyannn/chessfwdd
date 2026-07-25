@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PyCheckmate - Tier QR Cards</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      :root { --ink:#14251c; --moss:#254a36; --fern:#6c9b66; --paper:#f6f1e8; --cream:#e8dfcf; --gold:#d9ae5f; --line:rgba(20,37,28,.13); }
+      * { box-sizing:border-box; margin:0; padding:0; }
+      body { font-family:"Plus Jakarta Sans",sans-serif; background:var(--paper); color:var(--ink); padding:40px; }
+      .header { text-align:center; margin-bottom:32px; }
+      .header h1 { font:700 28px "Playfair Display",serif; letter-spacing:-.05em; margin-bottom:6px; }
+      .header p { font-size:14px; color:#52715c; }
+      .actions { display:flex; gap:10px; justify-content:center; margin-bottom:32px; }
+      .btn { border:0; padding:10px 18px; border-radius:10px; font-weight:700; font-size:13px; cursor:pointer; transition:background .2s, color .2s }
+      .btn-primary { background:var(--ink); color:var(--paper) }
+      .btn-primary:hover { background:var(--paper); color:var(--ink); border:1px solid var(--line) }
+      .btn-ghost { background:transparent; color:var(--ink); border:1px solid var(--line) }
+      .btn-ghost:hover { background:var(--ink); color:var(--paper) }
+      .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:32px; max-width:960px; margin:0 auto; }
+      .card { background:#fff; border:2px solid var(--line); border-radius:16px; padding:32px 24px; text-align:center; page-break-inside:avoid; }
+      .card-color { width:12px; height:12px; border-radius:50%; display:inline-block; margin-bottom:12px; }
+      .card-color.warmup { background:#769656; }
+      .card-color.tactic { background:#5a7fb5; }
+      .card-color.advanced { background:#b55a5a; }
+      .card h2 { font:700 22px "Playfair Display",serif; letter-spacing:-.04em; margin-bottom:4px; }
+      .card .tier-label { font:500 11px "DM Mono",monospace; letter-spacing:.1em; text-transform:uppercase; color:#52715c; margin-bottom:16px; display:block; }
+      .card img { width:220px; height:220px; border-radius:12px; border:1px solid var(--line); margin-bottom:16px; }
+      .card .pieces { font:500 13px "DM Mono",monospace; color:#6b7d70; margin-bottom:8px; }
+      .card .instruction { font-size:12px; color:#8a9b8f; line-height:1.5; margin-bottom:14px }
+      .card .dl-btn { display:inline-block; padding:7px 14px; border-radius:8px; font:600 12px "Plus Jakarta Sans",sans-serif; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer; transition:background .15s, color .15s }
+      .card .dl-btn:hover { background:var(--ink); color:var(--paper) }
+      .footer { text-align:center; margin-top:40px; font-size:12px; color:#8a9b8f; }
+      @media print {
+        body { padding:20px; background:#fff; }
+        .no-print { display:none !important; }
+        .cards { gap:24px; }
+        .card { border:2px solid #ddd; }
+      }
+      .back-link { display:inline-block; margin-top:20px; font:600 13px "Plus Jakarta Sans",sans-serif; color:var(--moss); text-decoration:none; border:1px solid var(--line); padding:8px 16px; border-radius:8px; }
+      .back-link:hover { background:var(--ink); color:var(--paper); }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>PyCheckmate Tier QR Cards</h1>
+      <p>Print this page and place the cards beside your physical chess board.</p>
+    </div>
+    <div class="actions no-print">
+      <button class="btn btn-primary" onclick="window.print()">Print All QR Codes</button>
+    </div>
+    <div class="cards" id="cards">
+      <div class="card" style="opacity:.5"><div class="card-color"></div><h2>Loading…</h2></div>
+    </div>
+    <div class="footer">
+      <p>After printing, cut along the card borders and place beside the board.</p>
+      <a href="/" class="back-link no-print">Back to PyCheckmate</a>
+    </div>
+    <script>
+      const tierMeta = { warmup: { color: '#769656', label: 'Pawn' }, tactic: { color: '#5a7fb5', label: 'Knight & Bishop' }, advanced: { color: '#b55a5a', label: 'Rook & Queen' } };
+
+      function downloadQrPdf(tier, label, imageDataUrl) {
+        const meta = tierMeta[tier];
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          canvas.toBlob((jpegBlob) => {
+            if (!jpegBlob) return alert('Failed to generate PDF.');
+            jpegBlob.arrayBuffer().then((buf) => {
+              const jpegBytes = new Uint8Array(buf);
+              const enc = new TextEncoder();
+              const pageW = 595, pageH = 842;
+              const imgDim = 280;
+              const scale = imgDim / Math.max(img.width, img.height);
+              const dw = img.width * scale, dh = img.height * scale;
+              const ix = (pageW - dw) / 2, iy = (pageH - dh) / 2;
+              const parts = [];
+              const add = (s) => parts.push(typeof s === 'string' ? enc.encode(s) : s);
+              const offsets = [];
+              add('%PDF-1.4\n');
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageW + ' ' + pageH + '] /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /Img 5 0 R >> >> >>\nendobj\n');
+              const titleLine = 'BT /F1 20 Tf ' + ((pageW - label.length * 6) / 2) + ' ' + (pageH - 70) + ' Td (' + label + ' Tier QR Code) Tj ET';
+              const piecesLine = 'BT /F1 12 Tf ' + ((pageW - meta.label.length * 4) / 2) + ' ' + (pageH - 95) + ' Td (Scans for: ' + meta.label + ') Tj ET';
+              const imgCmd = 'q ' + dw + ' 0 0 ' + dh + ' ' + ix + ' ' + iy + ' cm /Img Do Q';
+              const content = titleLine + '\n' + piecesLine + '\n' + imgCmd;
+              const contentBytes = enc.encode(content);
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('4 0 obj\n<< /Length ' + contentBytes.length + ' >>\nstream\n');
+              add(contentBytes);
+              add('\nendstream\nendobj\n');
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('5 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + img.width + ' /Height ' + img.height + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + jpegBytes.length + ' >>\nstream\n');
+              add(jpegBytes);
+              add('\nendstream\nendobj\n');
+              offsets.push(parts.reduce((a, p) => a + p.length, 0));
+              add('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+              const xrefOff = parts.reduce((a, p) => a + p.length, 0);
+              add('xref\n0 7\n0000000000 65535 f \n');
+              for (const o of offsets) add(String(o).padStart(10, '0') + ' 00000 n \n');
+              add('trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n' + xrefOff + '\n%%EOF');
+              let total = 0; for (const p of parts) total += p.length;
+              const result = new Uint8Array(total); let off = 0;
+              for (const p of parts) { result.set(p, off); off += p.length; }
+              const blob = new Blob([result], { type: 'application/pdf' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'pycheckmate-' + tier + '-qr.pdf';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            });
+          }, 'image/jpeg', 0.92);
+        };
+        img.src = imageDataUrl;
+      }
+
+      (async () => {
+        try {
+          const res = await fetch('/api/qr-tiers');
+          const tiers = await res.json();
+          document.getElementById('cards').innerHTML = tiers.map(t => `
+            <div class="card">
+              <div class="card-color ${t.tier}"></div>
+              <span class="tier-label">${t.label} Tier</span>
+              <h2>${t.label}</h2>
+              <img src="${t.image}" alt="${t.label} QR code" />
+              <div class="pieces">Scans for: ${t.pieces}</div>
+              <div class="instruction">Scan with your phone when you capture a ${tierMeta[t.tier].label} to reveal the challenge.</div>
+              <button class="dl-btn no-print" onclick="downloadQrPdf('${t.tier}', '${t.label}', '${t.image}')">Download PDF</button>
+            </div>
+          `).join('');
+        } catch (e) {
+          document.getElementById('cards').innerHTML = '<div class="card"><h2>Failed to load QR codes</h2><p>Make sure the server is running.</p></div>';
+        }
+      })();
+    </script>
+  </body>
+</html>

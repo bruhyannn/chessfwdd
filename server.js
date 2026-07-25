@@ -28,7 +28,7 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS games (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL, owner_id INTEGER NOT NULL,
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, language TEXT NOT NULL DEFAULT 'python', owner_id INTEGER NOT NULL,
     fen TEXT NOT NULL, moves_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'waiting',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(owner_id) REFERENCES users(id)
@@ -42,6 +42,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS quiz_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, prompt TEXT NOT NULL, choices_json TEXT NOT NULL,
     correct_index INTEGER NOT NULL, explanation TEXT NOT NULL, difficulty TEXT NOT NULL DEFAULT 'warmup',
+    language TEXT NOT NULL DEFAULT 'python',
     author_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(author_id) REFERENCES users(id)
   );
@@ -54,25 +55,61 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS game_challenges (
     game_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL,
-    captured_piece TEXT NOT NULL, difficulty TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    captured_piece TEXT NOT NULL, difficulty TEXT NOT NULL, is_revealed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(game_id) REFERENCES games(id), FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(question_id) REFERENCES quiz_questions(id)
   );
 `);
+try { db.exec(`ALTER TABLE game_challenges ADD COLUMN is_revealed INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE games ADD COLUMN language TEXT NOT NULL DEFAULT 'python'`); } catch {}
+try { db.exec(`ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'python'`); } catch {}
+
+const LANGUAGES = { python: 'Python', javascript: 'JavaScript', typescript: 'TypeScript', java: 'Java' };
+const ALLOWED_LANGUAGES = Object.keys(LANGUAGES);
 
 const seedQuestions = [
-  ['Which expression reads the value stored under the key "rank"?', ['player.rank', 'player["rank"]', 'player.get(rank)', 'rank[player]'], 1, 'Dictionary values are accessed with their key inside square brackets.', 'warmup'],
-  ['What does this create? {"white": 12, "black": 9}', ['A list', 'A tuple', 'A dictionary', 'A set'], 2, 'Curly braces with key-value pairs create a dictionary.', 'warmup'],
-  ['Which method safely returns None when "bonus" is missing?', ['score["bonus"]', 'score.find("bonus")', 'score.get("bonus")', 'score.value("bonus")'], 2, 'get() avoids a KeyError when a key is absent.', 'tactic'],
-  ['After board["e4"] = "pawn", what is board["e4"]?', ['"e4"', '"pawn"', 'True', 'A list'], 1, 'The key "e4" now maps to the value "pawn".', 'tactic'],
-  ['What is the result of scores = {"white": 3}; scores["black"] = scores.get("black", 0) + 1?', ['{"white": 3}', '{"black": 1}', '{"white": 3, "black": 1}', 'A KeyError'], 2, 'get("black", 0) supplies a default of 0 before adding 1.', 'advanced'],
-  ['Which statement correctly merges bonus points into a dictionary named score?', ['score + {"bonus": 5}', 'score.update({"bonus": 5})', 'score.append("bonus", 5)', 'score.merge("bonus": 5)'], 1, 'update() adds or replaces key-value pairs in a dictionary.', 'advanced'],
-  ['Which loop visits both a dictionary key and its value?', ['for k, v in d.items():', 'for k, v in d.keys():', 'for k, v in d.values():', 'for k, v in d.pairs():'], 0, 'items() provides key-value pairs for unpacking.', 'endgame'],
-  ['What removes and returns the value for "captured"?', ['del stats["captured"]', 'stats.pop("captured")', 'stats.remove("captured")', 'stats.clear("captured")'], 1, 'pop(key) removes the pair and returns its value.', 'endgame']
+  // Python (8 questions)
+  ['Which expression reads the value stored under the key "rank"?', ['player.rank', 'player["rank"]', 'player.get(rank)', 'rank[player]'], 1, 'Dictionary values are accessed with their key inside square brackets.', 'warmup', 'python'],
+  ['What does this create? {"white": 12, "black": 9}', ['A list', 'A tuple', 'A dictionary', 'A set'], 2, 'Curly braces with key-value pairs create a dictionary.', 'warmup', 'python'],
+  ['Which method safely returns None when "bonus" is missing?', ['score["bonus"]', 'score.find("bonus")', 'score.get("bonus")', 'score.value("bonus")'], 2, 'get() avoids a KeyError when a key is absent.', 'tactic', 'python'],
+  ['After board["e4"] = "pawn", what is board["e4"]?', ['"e4"', '"pawn"', 'True', 'A list'], 1, 'The key "e4" now maps to the value "pawn".', 'tactic', 'python'],
+  ['What is the result of scores = {"white": 3}; scores["black"] = scores.get("black", 0) + 1?', ['{"white": 3}', '{"black": 1}', '{"white": 3, "black": 1}', 'A KeyError'], 2, 'get("black", 0) supplies a default of 0 before adding 1.', 'advanced', 'python'],
+  ['Which statement correctly merges bonus points into a dictionary named score?', ['score + {"bonus": 5}', 'score.update({"bonus": 5})', 'score.append("bonus", 5)', 'score.merge("bonus": 5)'], 1, 'update() adds or replaces key-value pairs in a dictionary.', 'advanced', 'python'],
+  ['What does len({"a": 1, "b": 2, "c": 3}) return?', ['3', '6', '2', '1'], 0, 'len() returns the number of keys in a dictionary.', 'warmup', 'python'],
+  ['Which keyword checks if a key exists in a dictionary?', ['in', 'has', 'exists', 'contains'], 0, 'The "in" keyword tests membership in dictionary keys.', 'tactic', 'python'],
+  // JavaScript (8 questions)
+  ['What does typeof null return in JavaScript?', ['"null"', '"object"', '"undefined"', '"boolean"'], 1, 'typeof null returns "object" — a well-known quirk in JavaScript.', 'warmup', 'javascript'],
+  ['Which method adds an element to the end of an array?', ['array.add()', 'array.push()', 'array.append()', 'array.insert()'], 1, 'push() adds one or more elements to the end of an array.', 'warmup', 'javascript'],
+  ['What is the result of "5" + 3 in JavaScript?', ['8', '"53"', 'NaN', 'Error'], 1, 'The + operator concatenates when one operand is a string.', 'tactic', 'javascript'],
+  ['Which keyword declares a block-scoped variable?', ['var', 'let', 'global', 'define'], 1, 'let declares a block-scoped variable, unlike var which is function-scoped.', 'tactic', 'javascript'],
+  ['What does Array.isArray([]) return?', ['false', 'true', 'undefined', 'null'], 1, 'Array.isArray() correctly identifies arrays, returning true.', 'advanced', 'javascript'],
+  ['What is 0 === "0" in JavaScript?', ['true', 'false', 'TypeError', 'undefined'], 1, 'Strict equality (===) compares type and value; number vs string differs.', 'advanced', 'javascript'],
+  ['What does Object.keys({a: 1, b: 2}) return?', ['["a", "b"]', '[1, 2]', '{a: 1, b: 2}', '[["a", 1], ["b", 2]]'], 0, 'Object.keys() returns an array of an object\'s own property names.', 'warmup', 'javascript'],
+  ['Which array method creates a new array with matching elements?', ['filter()', 'find()', 'map()', 'forEach()'], 0, 'filter() returns a new array containing elements that pass the test.', 'tactic', 'javascript'],
+  // TypeScript (8 questions)
+  ['What does the string type annotation look like in TypeScript?', ['string', 'String', 'str', 'char'], 0, 'TypeScript uses lowercase primitive types: string, number, boolean.', 'warmup', 'typescript'],
+  ['Which keyword defines a custom type in TypeScript?', ['type', 'class', 'struct', 'define'], 0, 'The "type" keyword creates a type alias in TypeScript.', 'warmup', 'typescript'],
+  ['What is the output of: const x: number = "hello"?', ['Compilation error', 'Runtime error', '"hello"', 'undefined'], 0, 'TypeScript catches type mismatches at compile time.', 'tactic', 'typescript'],
+  ['Which modifier makes a property read-only in TypeScript?', ['readonly', 'const', 'final', 'static'], 0, 'readonly prevents reassignment of a property after initialization.', 'tactic', 'typescript'],
+  ['What does the "?" mean in TypeScript: name?: string?', ['Optional property', 'Nullable type', 'Required property', 'Array type'], 0, 'The "?" suffix marks a property as optional in an interface or type.', 'advanced', 'typescript'],
+  ['Which utility type makes all properties required?', ['Required<T>', 'Partial<T>', 'Readonly<T>', 'Pick<T>'], 0, 'Required<T> constructs a type with all properties set to required.', 'advanced', 'typescript'],
+  ['What is the difference between "interface" and "type"?', ['Both are similar, interface is extendable', 'interface is faster', 'type supports enums only', 'No difference'], 0, 'Both define object shapes; interfaces support declaration merging and extends.', 'warmup', 'typescript'],
+  ['What does "any" type do in TypeScript?', ['Disables type checking', 'Accepts only numbers', 'Makes variables global', 'Creates a union'], 0, 'The "any" type disables type checking for that variable.', 'tactic', 'typescript'],
+  // Java (8 questions)
+  ['Which keyword creates a new object in Java?', ['new', 'create', 'make', 'object'], 0, 'The "new" keyword instantiates a class by allocating memory.', 'warmup', 'java'],
+  ['What is the size of an int in Java?', ['4 bytes', '2 bytes', '8 bytes', '1 byte'], 0, 'Java int is always 4 bytes (32 bits) regardless of platform.', 'warmup', 'java'],
+  ['Which collection stores key-value pairs in Java?', ['HashMap', 'ArrayList', 'LinkedList', 'HashSet'], 0, 'HashMap implements the Map interface for key-value storage.', 'tactic', 'java'],
+  ['What does "static" mean in a Java method?', ['Belongs to the class, not instances', 'Cannot be changed', 'Runs fast', 'Is private'], 0, 'Static methods belong to the class itself and can be called without an instance.', 'tactic', 'java'],
+  ['Which keyword handles exceptions in Java?', ['try-catch', 'handle', 'rescue', 'except'], 0, 'try-catch blocks are used to handle checked and unchecked exceptions.', 'advanced', 'java'],
+  ['What is method overriding in Java?', ['Redefining a parent class method in a subclass', 'Defining multiple methods with the same name', 'Deleting a method', 'Importing a method'], 0, 'Overriding provides a specific implementation of a method defined in the superclass.', 'advanced', 'java'],
+  ['Which keyword prevents a class from being inherited?', ['final', 'static', 'private', 'abstract'], 0, 'A final class cannot be subclassed or extended.', 'warmup', 'java'],
+  ['What does ArrayList implement internally?', ['Dynamic array', 'Linked list', 'Binary tree', 'Hash table'], 0, 'ArrayList uses a resizable array that grows as elements are added.', 'tactic', 'java'],
 ];
-if (db.prepare('SELECT COUNT(*) AS count FROM quiz_questions').get().count === 0) {
-  const insert = db.prepare('INSERT INTO quiz_questions (prompt, choices_json, correct_index, explanation, difficulty) VALUES (?, ?, ?, ?, ?)');
-  const transaction = db.transaction(() => seedQuestions.forEach(([prompt, choices, correct, explanation, difficulty]) => insert.run(prompt, JSON.stringify(choices), correct, explanation, difficulty)));
+const expectedCount = seedQuestions.length;
+if (db.prepare('SELECT COUNT(*) AS count FROM quiz_questions').get().count < expectedCount) {
+  const insert = db.prepare('INSERT INTO quiz_questions (prompt, choices_json, correct_index, explanation, difficulty, language) VALUES (?, ?, ?, ?, ?, ?)');
+  const transaction = db.transaction(() => seedQuestions.forEach(([prompt, choices, correct, explanation, difficulty, language]) => insert.run(prompt, JSON.stringify(choices), correct, explanation, difficulty, language)));
   transaction();
 }
 
@@ -101,8 +138,12 @@ function tierForPiece(piece) {
 function challengeFor(gameId) {
   return db.prepare(`SELECT c.*, q.prompt, q.choices_json FROM game_challenges c JOIN quiz_questions q ON q.id = c.question_id WHERE c.game_id = ?`).get(gameId);
 }
-function selectQuestion(difficulty) {
-  return db.prepare('SELECT * FROM quiz_questions WHERE difficulty = ? ORDER BY RANDOM() LIMIT 1').get(difficulty)
+const TIER_LABELS = { warmup: 'Warmup', tactic: 'Tactic', advanced: 'Advanced' };
+const TIER_PIECES = { warmup: 'Pawn', tactic: 'Knight & Bishop', advanced: 'Rook & Queen' };
+function selectQuestion(difficulty, language) {
+  return db.prepare('SELECT * FROM quiz_questions WHERE difficulty = ? AND language = ? ORDER BY RANDOM() LIMIT 1').get(difficulty, language)
+    || db.prepare('SELECT * FROM quiz_questions WHERE difficulty = ? ORDER BY RANDOM() LIMIT 1').get(difficulty)
+    || db.prepare('SELECT * FROM quiz_questions WHERE language = ? ORDER BY RANDOM() LIMIT 1').get(language)
     || db.prepare('SELECT * FROM quiz_questions ORDER BY RANDOM() LIMIT 1').get();
 }
 function pathIsClear(chess, from, to) {
@@ -132,7 +173,7 @@ function serializeGame(gameId, viewerId) {
   if (!game) return null;
   const players = db.prepare(`SELECT gp.user_id AS id, u.username, gp.color, gp.points FROM game_players gp JOIN users u ON u.id = gp.user_id WHERE gp.game_id = ? ORDER BY gp.color`).all(gameId);
   const challenge = challengeFor(gameId);
-  const publicChallenge = challenge ? { userId: challenge.user_id, capturedPiece: challenge.captured_piece, difficulty: challenge.difficulty, awaiting: true, yours: challenge.user_id === viewerId } : null;
+  const publicChallenge = challenge ? { userId: challenge.user_id, capturedPiece: challenge.captured_piece, difficulty: challenge.difficulty, isRevealed: !!challenge.is_revealed, awaiting: true, yours: challenge.user_id === viewerId } : null;
   return { ...game, moves: JSON.parse(game.moves_json), players, challenge: publicChallenge, you: players.find((p) => p.id === viewerId) || null };
 }
 function broadcastGame(gameId) {
@@ -166,12 +207,13 @@ app.get('/api/games', auth, (req, res) => {
   res.json(games);
 });
 app.post('/api/games', auth, (req, res) => {
-  const title = (req.body.title || '').trim();
-  if (title.length < 3 || title.length > 40) return res.status(422).json({ error: 'Game title must be 3-40 characters.' });
+  const language = (req.body.language || 'python').toLowerCase();
+  if (!ALLOWED_LANGUAGES.includes(language)) return res.status(422).json({ error: 'Select a valid language: Python, JavaScript, TypeScript, or Java.' });
+  const title = `${LANGUAGES[language]} Duel`;
   const id = crypto.randomBytes(4).toString('hex').toUpperCase();
   const chess = new Chess();
   db.transaction(() => {
-    db.prepare('INSERT INTO games (id, title, owner_id, fen) VALUES (?, ?, ?, ?)').run(id, title, req.user.id, chess.fen());
+    db.prepare('INSERT INTO games (id, title, language, owner_id, fen) VALUES (?, ?, ?, ?, ?)').run(id, title, language, req.user.id, chess.fen());
     db.prepare('INSERT INTO game_players (game_id, user_id, color) VALUES (?, ?, ?)').run(id, req.user.id, 'white');
   })();
   res.status(201).json(serializeGame(id, req.user.id));
@@ -225,7 +267,27 @@ app.delete('/api/questions/:id', auth, (req, res) => {
 app.get('/api/games/:id/question', auth, (req, res) => {
   const challenge = challengeFor(req.params.id);
   if (!challenge || challenge.user_id !== req.user.id) return res.status(404).json({ error: 'There is no challenge waiting for you.' });
+  if (!challenge.is_revealed) return res.status(403).json({ error: 'Scan the matching tier QR card to reveal this challenge.' });
   res.json({ id: challenge.question_id, prompt: challenge.prompt, choices: JSON.parse(challenge.choices_json), difficulty: challenge.difficulty, capturedPiece: challenge.captured_piece });
+});
+app.post('/api/scan', auth, (req, res) => {
+  const { difficulty } = req.body;
+  if (!['warmup', 'tactic', 'advanced'].includes(difficulty)) return res.status(422).json({ error: 'Invalid tier.' });
+  const challenge = db.prepare(`SELECT c.*, g.id AS gid FROM game_challenges c JOIN games g ON g.id = c.game_id WHERE c.user_id = ? AND c.difficulty = ? AND c.is_revealed = 0 AND g.status = 'active'`).get(req.user.id, difficulty);
+  if (!challenge) return res.status(404).json({ error: 'No matching challenge found. Make sure you have a pending capture of that tier.' });
+  db.prepare('UPDATE game_challenges SET is_revealed = 1 WHERE game_id = ?').run(challenge.game_id);
+  broadcastGame(challenge.game_id);
+  res.json({ gameId: challenge.game_id, success: true });
+});
+app.get('/api/qr-tiers', async (req, res) => {
+  const host = `${req.protocol}://${req.get('host')}`;
+  const tiers = ['warmup', 'tactic', 'advanced'];
+  const results = await Promise.all(tiers.map(async (tier) => {
+    const url = `${host}/#scan=${tier}`;
+    const image = await QRCode.toDataURL(url, { width: 400, margin: 2, color: { dark: '#14251c', light: '#f6f1e8' } });
+    return { tier, label: TIER_LABELS[tier], pieces: TIER_PIECES[tier], url, image };
+  }));
+  res.json(results);
 });
 app.post('/api/games/:id/answer', auth, (req, res) => {
   const player = playerFor(req.params.id, req.user.id);
@@ -274,22 +336,29 @@ io.on('connection', (socket) => {
         const source = chess.get(from);
         chess.remove(from); chess.remove(to); chess.put(source, to);
         move = { san: `${source.type.toUpperCase()}${from}x${to}#`, from, to, captured: 'k' };
+        const parts = chess.fen().split(' ');
+        parts[1] = player.color === 'white' ? 'b' : 'w';
+        parts[2] = '-';
+        parts[3] = '-';
+        if (parts[1] === 'b') parts[5] = String(Number(parts[5]) + 1);
+        chess.load(parts.join(' '));
       } else {
         move = chess.move({ from, to, promotion });
       }
-      const moves = JSON.parse(game.moves_json);
-      moves.push({ san: move.san, from, to, by: socket.user.username, at: Date.now(), captured: move.captured || null });
       let status = move.captured === 'k' || chess.isCheckmate() || chess.isDraw() ? 'finished' : 'active';
       db.transaction(() => {
+        const currentGame = db.prepare('SELECT moves_json FROM games WHERE id = ?').get(gameId);
+        const moves = JSON.parse(currentGame.moves_json);
+        moves.push({ san: move.san, from, to, by: socket.user.username, at: Date.now(), captured: move.captured || null });
         db.prepare('UPDATE games SET fen = ?, moves_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(chess.fen(), JSON.stringify(moves), status, gameId);
         if (move.captured && status === 'active') {
           const difficulty = tierForPiece(move.captured);
-          const question = selectQuestion(difficulty);
+          const question = selectQuestion(difficulty, game.language);
           db.prepare('INSERT INTO game_challenges (game_id, user_id, question_id, captured_piece, difficulty) VALUES (?, ?, ?, ?, ?)').run(gameId, socket.user.id, question.id, move.captured, difficulty);
         }
       })();
       broadcastGame(gameId);
-      if (move.captured && status === 'active') socket.emit('challenge:earned', { gameId, capturedPiece: move.captured, difficulty: tierForPiece(move.captured), reason: 'Capture confirmed. Answer the matching QR challenge to earn an immediate extra move.' });
+      if (move.captured && status === 'active') socket.emit('challenge:earned', { gameId, capturedPiece: move.captured, difficulty: tierForPiece(move.captured), reason: `Capture confirmed. Scan the ${TIER_LABELS[tierForPiece(move.captured)]} QR card to reveal your challenge.` });
     } catch { socket.emit('app:error', 'That move is not legal.'); }
   });
 });
