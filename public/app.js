@@ -291,7 +291,7 @@ document.addEventListener('click', async (event) => {
     profileOpen = true;
     profileStats = null;
     render();
-    api('/users/me/stats').then((stats) => { profileStats = stats; render(); }).catch(() => {});
+    api('/users/me/stats').then((stats) => { profileStats = stats; const body = document.querySelector('.profile-panel-body'); if (body) { const temp = document.createElement('div'); temp.innerHTML = userProfilePanel(); const newBody = temp.querySelector('.profile-panel-body'); if (newBody) body.innerHTML = newBody.innerHTML; } else { render(); } }).catch(() => {});
     return;
   }
   if (action === 'close-profile') {
