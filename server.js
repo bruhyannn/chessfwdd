@@ -176,7 +176,13 @@ function serializeGame(gameId, viewerId) {
   const players = db.prepare(`SELECT gp.user_id AS id, u.username, gp.color, gp.points FROM game_players gp JOIN users u ON u.id = gp.user_id WHERE gp.game_id = ? ORDER BY gp.color`).all(gameId);
   const challenge = challengeFor(gameId);
   const publicChallenge = challenge ? { userId: challenge.user_id, capturedPiece: challenge.captured_piece, difficulty: challenge.difficulty, isRevealed: !!challenge.is_revealed, awaiting: true, yours: challenge.user_id === viewerId } : null;
-  return { ...game, moves: JSON.parse(game.moves_json), players, challenge: publicChallenge, you: players.find((p) => p.id === viewerId) || null };
+  let inCheck = false;
+  if (game.status === 'active') { try { const chess = new Chess(game.fen); inCheck = chess.in_check(); } catch {} }
+  let gameStats = null;
+  if (game.status === 'finished') {
+    gameStats = db.prepare(`SELECT qa.user_id, qq.difficulty, COUNT(*) AS attempted, SUM(qa.is_correct) AS correct FROM quiz_attempts qa JOIN quiz_questions qq ON qq.id = qa.question_id WHERE qa.game_id = ? GROUP BY qa.user_id, qq.difficulty`).all(gameId);
+  }
+  return { ...game, moves: JSON.parse(game.moves_json), players, challenge: publicChallenge, inCheck, gameStats, you: players.find((p) => p.id === viewerId) || null };
 }
 function broadcastGame(gameId) {
   const game = serializeGame(gameId, null);
@@ -351,7 +357,7 @@ app.post('/api/games/:id/answer', auth, (req, res) => {
     db.prepare('DELETE FROM game_challenges WHERE game_id = ?').run(req.params.id);
   })();
   broadcastGame(req.params.id);
-  res.json({ correct, explanation: question.explanation, pointsAwarded: correct ? 10 : 0, extraMove: correct });
+  res.json({ correct, explanation: question.explanation, pointsAwarded: correct ? 10 : 0, extraMove: correct, correctIndex: question.correct_index, choices: JSON.parse(question.choices_json) });
 });
 
 io.use((socket, next) => {
