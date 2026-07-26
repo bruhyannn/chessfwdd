@@ -82,3 +82,63 @@
 /* Language select */
 .field select { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:14px; color:var(--ink); appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%2352715c' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; cursor:pointer }
 
+/* Scan QR button */
+.scan-btn { background:var(--moss) !important; color:var(--paper) !important; border:0 !important; font-weight:700; transition:opacity .2s }
+.scan-btn:hover { opacity:.85; background:var(--moss) !important; color:var(--paper) !important }
+
+/* Scan overlay */
+.scan-overlay { position:fixed; inset:0; z-index:1000; background:rgba(20,37,28,.85); display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); animation:fadeIn .2s ease }
+@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+
+/* Scan modal */
+.scan-modal { background:var(--paper); border-radius:18px; padding:0; width:90%; max-width:420px; overflow:hidden; box-shadow:0 24px 80px rgba(0,0,0,.4); animation:slideUp .25s ease }
+@keyframes slideUp { from { transform:translateY(20px); opacity:0 } to { transform:translateY(0); opacity:1 } }
+
+/* Scan header */
+.scan-header { display:flex; align-items:center; justify-content:space-between; padding:18px 22px 14px; border-bottom:1px solid var(--line) }
+.scan-header h3 { font:700 17px "Playfair Display",serif; letter-spacing:-.03em; margin:0 }
+.scan-close { width:32px; height:32px; border-radius:50%; border:0; background:transparent; font-size:22px; color:var(--ink); cursor:pointer; display:grid; place-items:center; transition:background .15s }
+.scan-close:hover { background:rgba(20,37,28,.08) }
+
+/* Scan video container */
+.scan-video-container { position:relative; width:100%; aspect-ratio:1; background:#000; overflow:hidden }
+.scan-video-container video { width:100%; height:100%; object-fit:cover }
+#scan-reader { width:100%; height:100% }
+#scan-reader video { width:100% !important; height:100% !important; object-fit:cover !important }
+#scan-reader__scan_region { min-height:250px }
+#scan-reader__dashboard_section { display:none !important }
+#scan-reader__dashboard_section_csr button { display:none !important }
+
+/* Scan frame overlay */
+.scan-frame { position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center }
+.scan-frame::before { content:''; position:absolute; width:220px; height:220px; border:2px solid rgba(255,255,255,.4); border-radius:14px }
+
+/* Scan corners */
+.scan-corner { position:absolute; width:28px; height:28px; border:3px solid #a7d39f }
+.scan-corner.tl { top:calc(50% - 110px); left:calc(50% - 110px); border-right:0; border-bottom:0; border-radius:6px 0 0 0 }
+.scan-corner.tr { top:calc(50% - 110px); right:calc(50% - 110px); border-left:0; border-bottom:0; border-radius:0 6px 0 0 }
+.scan-corner.bl { bottom:calc(50% - 110px); left:calc(50% - 110px); border-right:0; border-top:0; border-radius:0 0 0 6px }
+.scan-corner.br { bottom:calc(50% - 110px); right:calc(50% - 110px); border-left:0; border-top:0; border-radius:0 0 6px 0 }
+
+/* Scan status */
+.scan-status { text-align:center; padding:14px 22px 6px; font:500 13px "Plus Jakarta Sans",sans-serif; color:#4a5c50 }
+
+/* Scan tier hint */
+.scan-tier-hint { display:flex; align-items:center; justify-content:center; gap:10px; padding:4px 22px 18px }
+.scan-tier-pieces { font:500 12px "DM Mono",monospace; color:#8a9b8f }
+
+/* Scan notice actions */
+.scan-notice-actions { margin-top:6px }
+
+/* Responsive scan modal */
+@media (max-width:560px) {
+  .scan-modal { width:95%; max-width:none; border-radius:14px }
+  .scan-video-container { aspect-ratio:1 }
+  .scan-corner.tl, .scan-corner.tr, .scan-corner.bl, .scan-corner.br { width:22px; height:22px }
+  .scan-corner.tl { top:calc(50% - 95px); left:calc(50% - 95px) }
+  .scan-corner.tr { top:calc(50% - 95px); right:calc(50% - 95px) }
+  .scan-corner.bl { bottom:calc(50% - 95px); left:calc(50% - 95px) }
+  .scan-corner.br { bottom:calc(50% - 95px); right:calc(50% - 95px) }
+  .scan-frame::before { width:190px; height:190px }
+}
+
