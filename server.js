@@ -64,6 +64,7 @@ db.exec(`
 try { db.exec(`ALTER TABLE game_challenges ADD COLUMN is_revealed INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE games ADD COLUMN language TEXT NOT NULL DEFAULT 'python'`); } catch {}
 try { db.exec(`ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'python'`); } catch {}
+try { db.exec(`ALTER TABLE games ADD COLUMN winner_id INTEGER REFERENCES users(id)`); } catch {}
 
 const LANGUAGES = { python: 'Python', javascript: 'JavaScript', typescript: 'TypeScript', java: 'Java' };
 const ALLOWED_LANGUAGES = Object.keys(LANGUAGES);
@@ -127,6 +128,7 @@ function auth(req, res, next) {
   next();
 }
 function validateCredentials({ username, email, password }, signUp = false) {
+  if (!signUp && !username) return 'Username is required.';
   if (signUp && (!/^[a-zA-Z0-9_]{3,20}$/.test(username || ''))) return 'Username must be 3-20 letters, numbers, or underscores.';
   if (signUp && !/^\S+@\S+\.\S+$/.test(email || '')) return 'Enter a valid email address.';
   if (!password || password.length < 8) return 'Password must contain at least 8 characters.';
@@ -196,11 +198,36 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const message = validateCredentials(req.body);
   if (message) return res.status(422).json({ error: message });
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get((req.body.email || '').trim().toLowerCase());
-  if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) return res.status(401).json({ error: 'Email or password is incorrect.' });
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get((req.body.username || '').trim());
+  if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) return res.status(401).json({ error: 'Username or password is incorrect.' });
   res.json({ token: issueToken(user), user: safeUser(user) });
 });
 app.get('/api/auth/me', auth, (req, res) => res.json(safeUser(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id))));
+
+app.get('/api/users/me/stats', auth, (req, res) => {
+  const userId = req.user.id;
+  const gamesPlayed = db.prepare('SELECT COUNT(*) AS count FROM game_players WHERE user_id = ?').get(userId).count;
+  const gamesWon = db.prepare('SELECT COUNT(*) AS count FROM games WHERE winner_id = ?').get(userId).count;
+  const winRate = gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 1000) / 10 : 0;
+
+  const quizStats = db.prepare(`
+    SELECT qq.language, COUNT(*) AS attempted, SUM(qa.is_correct) AS correct
+    FROM quiz_attempts qa
+    JOIN quiz_questions qq ON qq.id = qa.question_id
+    WHERE qa.user_id = ?
+    GROUP BY qq.language
+  `).all(userId);
+
+  const quizzes = {};
+  for (const lang of ['python', 'javascript', 'typescript', 'java']) {
+    const row = quizStats.find((r) => r.language === lang);
+    const attempted = row ? row.attempted : 0;
+    const correct = row ? row.correct : 0;
+    quizzes[lang] = { attempted, correct, rate: attempted > 0 ? Math.round((correct / attempted) * 1000) / 10 : 0 };
+  }
+
+  res.json({ gamesPlayed, gamesWon, winRate, quizzes });
+});
 
 app.get('/api/games', auth, (req, res) => {
   const games = db.prepare(`SELECT g.*, u.username AS owner_name, (SELECT COUNT(*) FROM game_players gp WHERE gp.game_id = g.id) AS player_count FROM games g JOIN users u ON u.id = g.owner_id WHERE g.status != 'finished' ORDER BY g.updated_at DESC`).all();
@@ -237,6 +264,24 @@ app.delete('/api/games/:id', auth, (req, res) => {
   if (game.owner_id !== req.user.id || game.status !== 'waiting') return res.status(403).json({ error: 'Only the host can remove a waiting game.' });
   db.transaction(() => { db.prepare('DELETE FROM game_players WHERE game_id = ?').run(game.id); db.prepare('DELETE FROM games WHERE id = ?').run(game.id); })();
   res.status(204).end();
+});
+app.post('/api/games/:id/leave', auth, (req, res) => {
+  const game = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found.' });
+  if (game.status !== 'active') return res.status(422).json({ error: 'This game is not in progress.' });
+  const leaver = playerFor(game.id, req.user.id);
+  if (!leaver) return res.status(403).json({ error: 'You are not in this game.' });
+  const opponent = db.prepare('SELECT gp.*, u.username FROM game_players gp JOIN users u ON u.id = gp.user_id WHERE gp.game_id = ? AND gp.user_id != ?').get(game.id, req.user.id);
+  if (!opponent) return res.status(422).json({ error: 'No opponent found.' });
+  db.prepare('UPDATE games SET status = ?, winner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('finished', opponent.user_id, game.id);
+  const leaveQuestion = selectQuestion('warmup', game.language);
+  if (leaveQuestion) {
+    db.prepare('INSERT INTO quiz_attempts (game_id, user_id, question_id, selected_index, is_correct) VALUES (?, ?, ?, ?, ?)').run(game.id, opponent.user_id, leaveQuestion.id, leaveQuestion.correct_index, 1);
+    db.prepare('INSERT INTO quiz_attempts (game_id, user_id, question_id, selected_index, is_correct) VALUES (?, ?, ?, ?, ?)').run(game.id, req.user.id, leaveQuestion.id, -1, 0);
+  }
+  broadcastGame(game.id);
+  io.to(`game:${game.id}`).emit('game:left', { username: leaver.username || req.user.username });
+  res.json({ success: true });
 });
 
 app.get('/api/games/:id/qr', auth, async (req, res) => {
@@ -350,7 +395,17 @@ io.on('connection', (socket) => {
         const currentGame = db.prepare('SELECT moves_json FROM games WHERE id = ?').get(gameId);
         const moves = JSON.parse(currentGame.moves_json);
         moves.push({ san: move.san, from, to, by: socket.user.username, at: Date.now(), captured: move.captured || null });
-        db.prepare('UPDATE games SET fen = ?, moves_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(chess.fen(), JSON.stringify(moves), status, gameId);
+        if (status === 'finished' && !chess.isDraw()) {
+          db.prepare('UPDATE games SET fen = ?, moves_json = ?, status = ?, winner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(chess.fen(), JSON.stringify(moves), status, socket.user.id, gameId);
+          const loser = db.prepare('SELECT user_id FROM game_players WHERE game_id = ? AND user_id != ?').get(gameId, socket.user.id);
+          const endQuestion = selectQuestion('warmup', game.language);
+          if (endQuestion) {
+            db.prepare('INSERT INTO quiz_attempts (game_id, user_id, question_id, selected_index, is_correct) VALUES (?, ?, ?, ?, ?)').run(gameId, socket.user.id, endQuestion.id, endQuestion.correct_index, 1);
+            if (loser) db.prepare('INSERT INTO quiz_attempts (game_id, user_id, question_id, selected_index, is_correct) VALUES (?, ?, ?, ?, ?)').run(gameId, loser.user_id, endQuestion.id, -1, 0);
+          }
+        } else {
+          db.prepare('UPDATE games SET fen = ?, moves_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(chess.fen(), JSON.stringify(moves), status, gameId);
+        }
         if (move.captured && status === 'active') {
           const difficulty = tierForPiece(move.captured);
           const question = selectQuestion(difficulty, game.language);
